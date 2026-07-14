@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+*.joblib
+
+# Node
+node_modules/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# Uploads & ML artifacts
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/app/ml/artifacts/*
+!backend/app/ml/artifacts/.gitkeep
+backend/chroma_db/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+.pytest_cache/
+htmlcov/
+.coverage
