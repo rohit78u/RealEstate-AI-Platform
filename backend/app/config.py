@@ -1,12 +1,21 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    database_url: str = "mysql+pymysql://root:rootpassword@localhost:3306/realestate"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    database_url: str = "sqlite:///./app.db"
     jwt_secret: str = "dev-secret-change-in-production"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
-    gemini_api_key: str = ""
+
+    # Groq API Key
+    groq_api_key: str = ""
+
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
     upload_dir: str = "./uploads"
     chroma_persist_dir: str = "./chroma_db"
@@ -14,11 +23,11 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+        return [
+            origin.strip()
+            for origin in self.cors_origins.split(",")
+            if origin.strip()
+        ]
 
 
 settings = Settings()

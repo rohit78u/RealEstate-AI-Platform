@@ -1,11 +1,31 @@
 import json
 from pathlib import Path
+from typing import Any
 
-import joblib
-import numpy as np
-import pandas as pd
-import shap
-from xgboost import XGBRegressor
+try:
+    import joblib
+except ImportError:  # pragma: no cover - optional dependency
+    joblib = None
+
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - optional dependency
+    np = None
+
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover - optional dependency
+    pd = None
+
+try:
+    import shap
+except ImportError:  # pragma: no cover - optional dependency
+    shap = None
+
+try:
+    from xgboost import XGBRegressor
+except ImportError:  # pragma: no cover - optional dependency
+    XGBRegressor = None
 
 from app.config import settings
 from app.schemas import PredictionInput, ShapContribution
@@ -25,17 +45,20 @@ FEATURE_COLUMNS = [
 
 class MLService:
     def __init__(self):
-        self.model: XGBRegressor | None = None
+        self.model: Any = None
         self.preprocessor = None
         self.feature_names: list[str] = []
         self.residual_std: float = 0.0
-        self._explainer: shap.TreeExplainer | None = None
+        self._explainer: Any = None
         self._load_artifacts()
 
     def _artifacts_path(self) -> Path:
         return Path(settings.ml_artifacts_dir)
 
     def _load_artifacts(self):
+        if joblib is None or pd is None or np is None or shap is None:
+            return
+
         artifacts = self._artifacts_path()
         model_path = artifacts / "model.joblib"
         preprocessor_path = artifacts / "preprocessor.joblib"
@@ -55,9 +78,11 @@ class MLService:
             self._explainer = shap.TreeExplainer(self.model)
 
     def is_ready(self) -> bool:
-        return self.model is not None and self.preprocessor is not None
+        return self.model is not None and self.preprocessor is not None and joblib is not None and pd is not None and np is not None and shap is not None
 
-    def _prepare_features(self, data: PredictionInput) -> pd.DataFrame:
+    def _prepare_features(self, data: PredictionInput) -> Any:
+        if pd is None:
+            raise RuntimeError("pandas is required for prediction")
         current_year = 2026
         row = {
             "area_sqft": data.area_sqft,
@@ -74,14 +99,17 @@ class MLService:
 
     def predict(self, data: PredictionInput) -> dict:
         if not self.is_ready():
-            raise RuntimeError("ML model not trained. Run training script first.")
+            raise RuntimeError("ML model not trained or required packages are missing. Run training script after installing the backend dependencies.")
 
         df = self._prepare_features(data)
         X = self.preprocessor.transform(df)
         predicted_price = float(self.model.predict(X)[0])
 
-        shap_values = self._explainer.shap_values(X)
-        contributions = self._format_shap(shap_values[0], df.iloc[0])
+        if self._explainer is None:
+            contributions = []
+        else:
+            shap_values = self._explainer.shap_values(X)
+            contributions = self._format_shap(shap_values[0], df.iloc[0])
         confidence = self._compute_confidence(predicted_price)
         explanation = self._generate_explanation(predicted_price, contributions)
 

@@ -1,16 +1,42 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import PropertyCard from '../components/PropertyCard'
+import PropertySection from '../components/PropertySection'
 import api from '../services/api'
+import { getRecommendationScore } from '../utils/propertyUtils'
 
 export default function Home() {
-  const [properties, setProperties] = useState([])
+  const [trending, setTrending] = useState([])
+  const [latest, setLatest] = useState([])
+  const [luxury, setLuxury] = useState([])
+  const [recommended, setRecommended] = useState([])
 
   useEffect(() => {
-    api.get('/properties', { params: { limit: 6, sort: 'created_desc' } })
-      .then((res) => setProperties(res.data.items))
+    Promise.all([
+      api.get('/properties', { params: { limit: 4, sort: 'price_desc' } }),
+      api.get('/properties', { params: { limit: 4, sort: 'created_desc' } }),
+      api.get('/properties', { params: { limit: 20, sort: 'price_desc' } }),
+      api.get('/properties', { params: { limit: 20, sort: 'created_desc' } }),
+    ])
+      .then(([trendingRes, latestRes, luxuryRes, recommendedRes]) => {
+        setTrending(trendingRes.data.items)
+        setLatest(latestRes.data.items)
+        setLuxury(
+          luxuryRes.data.items.filter((item) => item.price >= 15000000).slice(0, 4)
+        )
+        setRecommended(
+          [...recommendedRes.data.items]
+            .sort((a, b) => getRecommendationScore(b) - getRecommendationScore(a))
+            .slice(0, 4)
+        )
+      })
       .catch(() => {})
   }, [])
+
+  const viewAllLink = (
+    <Link to="/properties" className="text-primary-600 font-medium hover:text-primary-700">
+      View all →
+    </Link>
+  )
 
   return (
     <div>
@@ -20,31 +46,53 @@ export default function Home() {
           Browse properties, predict house prices with Machine Learning, and get AI-powered real estate advice.
         </p>
         <div className="flex gap-4">
-          <Link to="/properties" className="bg-white text-primary-700 px-6 py-3 rounded-lg font-semibold hover:bg-primary-50">
+          <Link
+            to="/properties"
+            className="bg-white text-primary-700 px-6 py-3 rounded-lg font-semibold hover:bg-primary-50 transition-colors duration-200"
+          >
             Browse Properties
           </Link>
-          <Link to="/predict" className="border border-white/40 px-6 py-3 rounded-lg font-semibold hover:bg-white/10">
+          <Link
+            to="/predict"
+            className="border border-white/40 px-6 py-3 rounded-lg font-semibold hover:bg-white/10 transition-colors duration-200"
+          >
             Predict Price
           </Link>
         </div>
       </section>
 
-      <section>
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold">Featured Listings</h2>
-          <Link to="/properties" className="text-primary-600 font-medium hover:text-primary-700">View all →</Link>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {properties.map((p) => (
-            <Link key={p.id} to={`/properties/${p.id}`}>
-              <PropertyCard property={p} />
-            </Link>
-          ))}
-        </div>
-        {properties.length === 0 && (
-          <p className="text-slate-500 text-center py-12">No properties listed yet. Admin can add properties.</p>
+      <PropertySection
+        title="Trending Properties"
+        properties={trending}
+        viewAllLink={viewAllLink}
+      />
+
+      <PropertySection
+        title="Latest Listings"
+        properties={latest}
+        viewAllLink={viewAllLink}
+      />
+
+      <PropertySection
+        title="Luxury Collection"
+        properties={luxury}
+        viewAllLink={viewAllLink}
+      />
+
+      <PropertySection
+        title="AI Recommended Properties"
+        properties={recommended}
+        viewAllLink={viewAllLink}
+      />
+
+      {trending.length === 0 &&
+        latest.length === 0 &&
+        luxury.length === 0 &&
+        recommended.length === 0 && (
+          <p className="text-slate-500 text-center py-12">
+            No properties listed yet. Admin can add properties.
+          </p>
         )}
-      </section>
     </div>
   )
 }

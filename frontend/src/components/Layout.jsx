@@ -1,13 +1,18 @@
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useWishlist } from '../context/WishlistContext'
+import { useCompare } from '../context/CompareContext'
+import Toast from './Toast'
 
 const navLinkClass = ({ isActive }) =>
-  `px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+  `px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
     isActive ? 'bg-primary-600 text-white' : 'text-slate-600 hover:bg-slate-100'
   }`
 
 export default function Layout() {
   const { user, logout, isAdmin } = useAuth()
+  const { wishlistIds } = useWishlist()
+  const { compareIds, message } = useCompare()
 
   return (
     <div className="min-h-screen">
@@ -20,6 +25,12 @@ export default function Layout() {
             <div className="flex items-center gap-1">
               <NavLink to="/" className={navLinkClass} end>Home</NavLink>
               <NavLink to="/properties" className={navLinkClass}>Properties</NavLink>
+              <NavLink to="/wishlist" className={navLinkClass}>
+                Wishlist{wishlistIds.length > 0 ? ` (${wishlistIds.length})` : ''}
+              </NavLink>
+              <NavLink to="/compare" className={navLinkClass}>
+                Compare{compareIds.length > 0 ? ` (${compareIds.length})` : ''}
+              </NavLink>
               <NavLink to="/predict" className={navLinkClass}>Predict</NavLink>
               {user && <NavLink to="/chat" className={navLinkClass}>AI Chat</NavLink>}
               {user && <NavLink to="/dashboard" className={navLinkClass}>Dashboard</NavLink>}
@@ -29,14 +40,14 @@ export default function Layout() {
               {user ? (
                 <>
                   <span className="text-sm text-slate-600">{user.full_name}</span>
-                  <button onClick={logout} className="text-sm text-red-600 hover:text-red-700 font-medium">
+                  <button onClick={logout} className="text-sm text-red-600 hover:text-red-700 font-medium transition-colors duration-200">
                     Logout
                   </button>
                 </>
               ) : (
                 <>
                   <Link to="/login" className="text-sm font-medium text-primary-600 hover:text-primary-700">Login</Link>
-                  <Link to="/register" className="text-sm font-medium bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700">
+                  <Link to="/register" className="text-sm font-medium bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors duration-200">
                     Register
                   </Link>
                 </>
@@ -48,6 +59,7 @@ export default function Layout() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Outlet />
       </main>
+      <Toast message={message} visible={Boolean(message)} />
     </div>
   )
 }

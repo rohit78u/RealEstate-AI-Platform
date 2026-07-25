@@ -1,3 +1,5 @@
+from app.services.rag_service import rag_service
+from app.models import Property
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
@@ -67,3 +69,16 @@ def send_message(
 
     user_msg, assistant_msg = add_chat_message(db, session, data)
     return [user_msg, assistant_msg]
+
+
+@router.post("/reindex")
+def reindex_properties(
+    db: Session = Depends(get_db),
+):
+    count = rag_service.reindex_all(db)
+
+    return {
+        "success": True,
+        "indexed_properties": count,
+        "message": f"{count} properties indexed successfully."
+    }

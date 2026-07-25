@@ -3,6 +3,8 @@ import Layout from './components/Layout'
 import Home from './pages/Home'
 import Properties from './pages/Properties'
 import PropertyDetail from './pages/PropertyDetail'
+import Compare from './pages/Compare'
+import Wishlist from './pages/Wishlist'
 import Predict from './pages/Predict'
 import Chat from './pages/Chat'
 import Dashboard from './pages/Dashboard'
@@ -17,6 +19,8 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="properties" element={<Properties />} />
         <Route path="properties/:id" element={<PropertyDetail />} />
+        <Route path="compare" element={<Compare />} />
+        <Route path="wishlist" element={<Wishlist />} />
         <Route path="predict" element={<Predict />} />
         <Route path="chat" element={<Chat />} />
         <Route path="dashboard" element={<Dashboard />} />

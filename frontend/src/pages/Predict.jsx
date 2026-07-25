@@ -28,6 +28,11 @@ export default function Predict() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!user) { navigate('/login'); return }
+    // Client-side validation to match backend business rule
+    if (Number(form.bathrooms) >= Number(form.bedrooms)) {
+      setError('Bathrooms must be fewer than bedrooms')
+      return
+    }
     setLoading(true)
     setError('')
     try {

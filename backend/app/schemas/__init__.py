@@ -156,7 +156,12 @@ class ChatSessionResponse(BaseModel):
 
 class DashboardSummary(BaseModel):
     total_properties: int
+    total_area: float
+    average_area: float
     average_price: float
+    median_price: float
+    median_price_per_sqft: float
+    average_price_per_sqft: float
     highest_price: float
     lowest_price: float
     total_predictions: int
@@ -168,6 +173,23 @@ class CityCount(BaseModel):
     count: int
 
 
+class BedroomCount(BaseModel):
+    bedrooms: int
+    count: int
+
+
+class CityPricePerSqft(BaseModel):
+    city: str
+    average_price_per_sqft: float
+
+
+class TopListing(BaseModel):
+    id: int
+    title: str
+    city: str
+    price: float
+
+
 class PriceBucket(BaseModel):
     range_label: str
     count: int
@@ -175,6 +197,9 @@ class PriceBucket(BaseModel):
 
 class DashboardCharts(BaseModel):
     properties_by_city: list[CityCount]
+    property_bedroom_distribution: list[BedroomCount]
     price_distribution: list[PriceBucket]
     recent_listings: list[PropertyResponse]
     prediction_trend: list[dict[str, Any]]
+    price_per_sqft_by_city: list[CityPricePerSqft]
+    top_expensive: list[TopListing]

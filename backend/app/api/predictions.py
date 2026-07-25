@@ -17,6 +17,9 @@ def predict_price(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Basic business validation: bathrooms should be fewer than bedrooms
+    if data.bathrooms >= data.bedrooms:
+        raise HTTPException(status_code=400, detail="Bathrooms must be fewer than bedrooms")
     if not ml_service.is_ready():
         raise HTTPException(
             status_code=503,

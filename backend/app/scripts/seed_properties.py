@@ -109,7 +109,7 @@ PROPERTY_DESCRIPTIONS = [
 def build_property_payload(index: int, city: str, location: str) -> dict:
     city_data = CITY_DATA[city]
     bedrooms = random.randint(1, 5)
-    bathrooms = random.randint(1, 5)
+    bathrooms = random.randint(0, bedrooms - 1)
     floors = random.randint(1, 3)
     parking = random.randint(0, 2)
     area_sqft = round(random.uniform(800, 2600), 1)
@@ -151,6 +151,16 @@ def seed_properties(count: int = 300) -> int:
     try:
         existing_count = db.query(Property).count()
         if existing_count > 0:
+            repaired = 0
+            for prop in db.query(Property).filter(Property.bathrooms >= Property.bedrooms).all():
+                prop.bathrooms = 0 if prop.bedrooms <= 1 else prop.bedrooms - 1
+                repaired += 1
+            for prop in db.query(Property).filter(Property.bathrooms < 0).all():
+                prop.bathrooms = 0
+                repaired += 1
+            if repaired > 0:
+                db.commit()
+                print(f"Repaired {repaired} existing property bathroom values.")
             print(f"Skipping property seed — {existing_count} properties already exist.")
             return 0
 
