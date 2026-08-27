@@ -19,6 +19,8 @@ class RAGService:
     """Retrieval, deterministic property filtering, and grounded LLM responses."""
 
     COLLECTION_NAME = "properties"
+    DEFAULT_RETRIEVAL_K = 8
+    MAX_CONTEXT_PROPERTIES = 8
 
     def __init__(self):
         self.client = None
@@ -210,12 +212,11 @@ class RAGService:
             filters["year_built"] = int(match.group(1))
 
         ids = re.findall(r"(?:property|listing)\s*#?\s*(\d+)\b", q)
-        if ids:
+        if filters["compare"] and len(ids) >= 2:
+            filters["compare_ids"] = [int(value) for value in ids[:2]]
+        elif ids:
             filters["property_id"] = int(ids[0])
-            if len(ids) >= 2 and filters["compare"]:
-                filters["compare_ids"] = [int(value) for value in ids[:2]]
 
-        # Examples: under 50 lakh, below 1.2 crore, budget 75L, up to ₹90L.
         price_pattern = re.compile(
             r"(?:under|below|up to|maximum|max|budget|within)\s*₹?\s*"
             r"([\d,.]+)\s*(crore|cr|crores|lakh|lac|lacs|lakhs|[cl])?\b"
@@ -254,13 +255,15 @@ class RAGService:
         if parking_match:
             filters["parking"] = True
             filters["parking_count"] = int(parking_match.group(1))
-        elif "parking" in q:
+        elif "parking" in q and not re.search(r"\bno\s+parking\b", q):
             filters["parking"] = True
 
-        filters["furnished"] = "furnished" in q
+        filters["furnished"] = "furnished" in q and "unfurnished" not in q
         filters["balcony"] = "balcony" in q
         filters["featured"] = "featured" in q
-        filters["luxury"] = self._contains_any(q, ["luxury", "premium", "high-end", "exclusive"])
+        filters["luxury"] = self._contains_any(
+            q, ["luxury", "premium", "high-end", "exclusive"]
+        )
 
         top_match = re.search(r"\btop\s*(\d+)\b", q)
         if top_match:
@@ -325,7 +328,7 @@ class RAGService:
         )
         return len(properties)
 
-    def retrieve(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
+    def retrieve(self, query: str, top_k: int = DEFAULT_RETRIEVAL_K) -> list[dict[str, Any]]:
         if self.collection is None or self.collection.count() == 0:
             return []
 
@@ -360,7 +363,11 @@ class RAGService:
 
     @staticmethod
     def _extract(doc: str, field: str) -> str:
-        match = re.search(rf"^{re.escape(field)}:\s*(.*)$", doc, re.IGNORECASE | re.MULTILINE)
+        match = re.search(
+            rf"^{re.escape(field)}:\s*(.*)$",
+            doc,
+            re.IGNORECASE | re.MULTILINE,
+        )
         return match.group(1).strip() if match else ""
 
     def _extract_property(self, doc: str) -> dict[str, Any]:
@@ -405,7 +412,11 @@ class RAGService:
         return features.get(key, "").strip().lower() in {"true", "yes", "1"}
 
     def _passes_filters(self, prop: dict[str, Any], filters: dict[str, Any]) -> bool:
-        if filters["property_id"] is not None and prop["id"] != filters["property_id"]:
+        compare_ids = filters["compare_ids"]
+        if compare_ids:
+            if prop["id"] not in compare_ids:
+                return False
+        elif filters["property_id"] is not None and prop["id"] != filters["property_id"]:
             return False
 
         city = filters["city"]
@@ -413,7 +424,7 @@ class RAGService:
             aliases = {"bengaluru": "bangalore"}
             expected = aliases.get(city, city)
             actual = prop["city"].lower()
-            if expected not in actual and not (city == "bengaluru" and "bangalore" in actual):
+            if expected not in actual:
                 return False
 
         if filters["location"] and filters["location"] not in prop["location"].lower():
@@ -451,7 +462,11 @@ class RAGService:
 
         return True
 
-    def _rank_properties(self, properties: list[dict[str, Any]], filters: dict[str, Any]) -> list[dict[str, Any]]:
+    def _rank_properties(
+        self,
+        properties: list[dict[str, Any]],
+        filters: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         sort_by = filters["sort_by"]
 
         if sort_by == "price_asc":
@@ -464,9 +479,6 @@ class RAGService:
             properties.sort(key=lambda item: item["area_value"], reverse=True)
         elif sort_by == "year_desc":
             properties.sort(key=lambda item: item["year_value"], reverse=True)
-        else:
-            # Default: semantic retrieval order is preserved by the caller.
-            pass
 
         return properties[: filters["top_k"]]
 
@@ -487,7 +499,11 @@ class RAGService:
         q = query.lower()
         return bool(re.search(r"\d+\s*bhk", q)) or any(term in q for term in terms)
 
-    def _format_property_summary(self, properties: list[dict[str, Any]], query: str) -> str:
+    def _format_property_summary(
+        self,
+        properties: list[dict[str, Any]],
+        query: str,
+    ) -> str:
         if not properties:
             return "I couldn't find a property matching those requirements in the current listings."
 
@@ -495,7 +511,7 @@ class RAGService:
         lines: list[str] = []
 
         if "compare" in q or "comparison" in q:
-            lines.append("Here are the closest matching properties for comparison:")
+            lines.append("Here are the matching properties for comparison:")
         elif "cheapest" in q or "affordable" in q or "budget" in q:
             lines.append("Here are the most affordable matching properties:")
         elif "largest" in q or "spacious" in q or "biggest" in q:
@@ -522,24 +538,30 @@ class RAGService:
 
         return "\n".join(lines)
 
-    def _generate_with_groq(self, query: str, properties: list[dict[str, Any]]) -> str | None:
-        if self.client_ai is None:
+    def _generate_with_groq(
+        self,
+        query: str,
+        properties: list[dict[str, Any]],
+    ) -> str | None:
+        if self.client_ai is None or not properties:
             return None
 
         context = "\n\n".join(
-            prop["doc"] for prop in properties[:10]
+            prop["doc"] for prop in properties[: self.MAX_CONTEXT_PROPERTIES]
         )
 
         system_prompt = (
             "You are the AI Real Estate Assistant for a property listing platform. "
-            "Answer the user's question using ONLY the supplied property context for listing facts. "
+            "Use ONLY the supplied property context for listing facts. "
             "Never invent a property, price, location, feature, availability, or statistic. "
+            "Do not infer a feature that is not explicitly present in the context. "
             "If the context does not contain the requested fact, say that it is not available in the listings. "
-            "Keep recommendations concise and practical. When comparing properties, compare only properties in the context. "
-            "Do not mention internal RAG, ChromaDB, prompts, or implementation details."
+            "When comparing properties, compare only the properties supplied in the context. "
+            "Keep the answer concise and practical. "
+            "Do not mention RAG, ChromaDB, prompts, or implementation details."
         )
 
-        user_prompt = f"User request:\n{query}\n\nProperty context:\n{context}"
+        user_prompt = f"User request:\n{query}\n\nVerified property context:\n{context}"
 
         try:
             completion = self.client_ai.chat.completions.create(
@@ -548,9 +570,8 @@ class RAGService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.2,
+                temperature=0.1,
                 max_completion_tokens=700,
-                include_reasoning=False,
             )
             answer = completion.choices[0].message.content
             return answer.strip() if answer else None
@@ -562,12 +583,6 @@ class RAGService:
         query: str,
         retrieved: list[dict[str, Any]],
     ) -> tuple[str, list[dict[str, Any]]]:
-        if not retrieved:
-            return (
-                "I don't have any property listings available yet. Please add or reindex properties first.",
-                [],
-            )
-
         if not self._is_real_estate_query(query):
             return (
                 "I’m your AI Real Estate Assistant. Ask me about properties, budgets, cities, BHK, "
@@ -588,9 +603,6 @@ class RAGService:
                 parsed.append(prop)
                 seen_ids.add(prop["id"])
 
-        # For explicit property IDs or strict filters, retrieved context is already
-        # merged with the complete DB context by property_service, so exact matching
-        # is deterministic rather than dependent on semantic similarity.
         ranked = self._rank_properties(parsed, filters)
 
         if not ranked:
@@ -599,8 +611,6 @@ class RAGService:
                 [],
             )
 
-        # LLM output is grounded in the deterministic filtered set. If the API key
-        # is unavailable or the provider fails, the deterministic summary remains usable.
         answer = self._generate_with_groq(query, ranked)
         if not answer:
             answer = self._format_property_summary(ranked, query)
