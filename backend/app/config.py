@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
 
+    # Admin bootstrap credentials. Set these only through environment variables
+    # in deployed environments; never commit real credentials.
+    admin_email: str = ""
+    admin_password: str = ""
+
     # Groq LLM configuration
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-20b"
