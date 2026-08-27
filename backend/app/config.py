@@ -8,24 +8,54 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # ============================================================
+    # DATABASE
+    # ============================================================
+
     database_url: str = "sqlite:///./app.db"
-    jwt_secret: str = "dev-secret-change-in-production"
+
+    # ============================================================
+    # JWT AUTHENTICATION
+    # ============================================================
+
+    jwt_secret: str = "change-this-secret-in-production"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
 
-    # Admin bootstrap credentials. Set these only through environment variables
-    # in deployed environments; never commit real credentials.
+    # ============================================================
+    # ADMIN
+    # ============================================================
+
     admin_email: str = ""
     admin_password: str = ""
 
-    # Groq LLM configuration
+    # ============================================================
+    # GROQ LLM
+    # ============================================================
+
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-20b"
 
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    # ============================================================
+    # CORS
+    # ============================================================
+
+    cors_origins: str = (
+        "http://localhost:5173,"
+        "http://localhost:3000"
+    )
+
+    # ============================================================
+    # STORAGE
+    # ============================================================
+
     upload_dir: str = "./uploads"
     chroma_persist_dir: str = "./chroma_db"
     ml_artifacts_dir: str = "./app/ml/artifacts"
+
+    # ============================================================
+    # HELPERS
+    # ============================================================
 
     @property
     def cors_origin_list(self) -> list[str]:
