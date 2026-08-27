@@ -7,9 +7,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import auth, chat, dashboard, predictions, properties
 from app.config import settings
-from app.database import Base, engine
+from app.database import Base, SessionLocal, engine
 from app.models import User, UserRole
-from app.database import SessionLocal
 from app.utils.security import hash_password
 
 
@@ -21,13 +20,17 @@ async def lifespan(app: FastAPI):
 
 
 def _seed_admin():
+    """Create the bootstrap admin only when credentials are explicitly configured."""
+    if not settings.admin_email or not settings.admin_password:
+        return
+
     db = SessionLocal()
     try:
-        admin = db.query(User).filter(User.email == "admin@realestate.com").first()
+        admin = db.query(User).filter(User.email == settings.admin_email).first()
         if not admin:
             admin = User(
-                email="admin@realestate.com",
-                password_hash=hash_password("admin123"),
+                email=settings.admin_email,
+                password_hash=hash_password(settings.admin_password),
                 full_name="Platform Admin",
                 role=UserRole.admin,
             )
