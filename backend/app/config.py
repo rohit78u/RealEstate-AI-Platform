@@ -13,8 +13,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
 
-    # Groq API Key
+    # Groq LLM configuration
     groq_api_key: str = ""
+    groq_model: str = "openai/gpt-oss-20b"
 
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
     upload_dir: str = "./uploads"
