@@ -20,6 +20,7 @@ class RAGService:
 
     COLLECTION_NAME = "properties"
     DEFAULT_RETRIEVAL_K = 8
+    MAX_RETRIEVAL_K = 8
     MAX_CONTEXT_PROPERTIES = 8
 
     def __init__(self):
@@ -42,10 +43,6 @@ class RAGService:
                 self.client_ai = Groq(api_key=settings.groq_api_key)
             except Exception:
                 self.client_ai = None
-
-    # ------------------------------------------------------------------
-    # Property -> searchable document
-    # ------------------------------------------------------------------
 
     def _property_document(self, prop: Property) -> str:
         features = prop.features or {}
@@ -94,10 +91,6 @@ class RAGService:
             for prop in properties
         ]
 
-    # ------------------------------------------------------------------
-    # Query understanding
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _contains_any(text: str, terms: list[str]) -> bool:
         return any(term in text for term in terms)
@@ -117,44 +110,33 @@ class RAGService:
     def _infer_sort_preference(self, query: str) -> str | None:
         q = query.lower()
 
-        if self._contains_any(
-            q,
-            [
-                "cheapest", "least expensive", "lowest price", "lowest cost",
-                "affordable", "cheap", "budget", "best value", "good deal",
-                "low cost", "under", "within budget", "cheaper", "lower price",
-            ],
-        ):
+        if self._contains_any(q, [
+            "cheapest", "least expensive", "lowest price", "lowest cost",
+            "affordable", "cheap", "budget", "best value", "good deal",
+            "low cost", "under", "within budget", "cheaper", "lower price",
+        ]):
             return "price_asc"
 
-        if self._contains_any(
-            q,
-            [
-                "most expensive", "highest price", "premium", "expensive",
-                "luxury", "high-end", "maximum price", "costly",
-            ],
-        ):
+        if self._contains_any(q, [
+            "most expensive", "highest price", "premium", "expensive",
+            "luxury", "high-end", "maximum price", "costly",
+        ]):
             return "price_desc"
 
-        if self._contains_any(
-            q,
-            [
-                "largest", "most spacious", "biggest", "larger", "maximum area",
-                "maximum size", "spacious", "largest area",
-            ],
-        ):
+        if self._contains_any(q, [
+            "largest", "most spacious", "biggest", "larger", "maximum area",
+            "maximum size", "spacious", "largest area",
+        ]):
             return "area_desc"
 
-        if self._contains_any(
-            q,
-            ["smallest", "compact", "smaller", "tiny", "minimum area", "minimum size"],
-        ):
+        if self._contains_any(q, [
+            "smallest", "compact", "smaller", "tiny", "minimum area", "minimum size",
+        ]):
             return "area_asc"
 
-        if self._contains_any(
-            q,
-            ["newest", "latest", "newly built", "recently built", "recent", "new build"],
-        ):
+        if self._contains_any(q, [
+            "newest", "latest", "newly built", "recently built", "recent", "new build",
+        ]):
             return "year_desc"
 
         return None
@@ -261,9 +243,7 @@ class RAGService:
         filters["furnished"] = "furnished" in q and "unfurnished" not in q
         filters["balcony"] = "balcony" in q
         filters["featured"] = "featured" in q
-        filters["luxury"] = self._contains_any(
-            q, ["luxury", "premium", "high-end", "exclusive"]
-        )
+        filters["luxury"] = self._contains_any(q, ["luxury", "premium", "high-end", "exclusive"])
 
         top_match = re.search(r"\btop\s*(\d+)\b", q)
         if top_match:
@@ -280,10 +260,6 @@ class RAGService:
                 break
 
         return filters
-
-    # ------------------------------------------------------------------
-    # ChromaDB indexing / retrieval
-    # ------------------------------------------------------------------
 
     def index_property(self, prop: Property) -> None:
         if self.collection is None:
@@ -332,7 +308,8 @@ class RAGService:
         if self.collection is None or self.collection.count() == 0:
             return []
 
-        n_results = min(max(top_k, 1), self.collection.count())
+        requested_k = min(max(top_k, 1), self.MAX_RETRIEVAL_K)
+        n_results = min(requested_k, self.collection.count())
         results = self.collection.query(query_texts=[query], n_results=n_results)
 
         documents = results.get("documents", [[]])[0]
@@ -347,10 +324,6 @@ class RAGService:
             }
             for document, metadata, distance in zip(documents, metadatas, distances)
         ]
-
-    # ------------------------------------------------------------------
-    # Deterministic filtering / ranking
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _parse_feature_text(feature_text: str) -> dict[str, str]:
@@ -482,10 +455,6 @@ class RAGService:
 
         return properties[: filters["top_k"]]
 
-    # ------------------------------------------------------------------
-    # Response generation
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _is_real_estate_query(query: str) -> bool:
         terms = [
@@ -572,6 +541,7 @@ class RAGService:
                 ],
                 temperature=0.1,
                 max_completion_tokens=700,
+                include_reasoning=False,
             )
             answer = completion.choices[0].message.content
             return answer.strip() if answer else None
