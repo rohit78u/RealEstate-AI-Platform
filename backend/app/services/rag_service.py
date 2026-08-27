@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 from typing import Any
 
 try:
@@ -30,6 +31,7 @@ class RAGService:
 
         if chromadb is not None:
             try:
+                Path(settings.chroma_persist_dir).mkdir(parents=True, exist_ok=True)
                 self.client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
                 self.collection = self.client.get_or_create_collection(
                     name=self.COLLECTION_NAME

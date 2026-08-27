@@ -74,3 +74,9 @@ def health_check():
         "status": "healthy",
         "ml_model_ready": ml_service.is_ready(),
     }
+
+
+@app.get("/health")
+def liveness_check():
+    """Minimal platform liveness probe with no dependency checks or secrets."""
+    return {"status": "ok"}

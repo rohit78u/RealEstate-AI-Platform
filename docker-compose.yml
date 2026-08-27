@@ -1,3 +1,5 @@
+# Local development stack only. Production should use the built images with
+# managed database, persistent volumes, and deployment-specific secrets.
 services:
   mysql:
     image: mysql:8.0

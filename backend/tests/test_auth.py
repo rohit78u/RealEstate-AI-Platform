@@ -32,6 +32,12 @@ def test_protected_route_without_token(client):
     assert response.status_code == 401
 
 
+def test_liveness_health_endpoint(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_get_me(client, auth_headers):
     response = client.get("/api/auth/me", headers=auth_headers)
     assert response.status_code == 200
