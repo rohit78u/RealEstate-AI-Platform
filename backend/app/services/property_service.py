@@ -152,26 +152,37 @@ def add_chat_message(
     db.add(user_message)
     db.flush()
 
-    # Load ALL properties from database
+    # Load the complete listing set so deterministic filters in RAG can
+    # never miss an exact match just because vector similarity ranked it low.
     properties = db.query(Property).all()
-
-    # Convert every property into RAG context
     all_context = rag_service.properties_to_context(properties)
 
-    # Retrieve most relevant properties from Chroma
+    # Chroma is used only for semantic relevance. RAGService also enforces
+    # its own hard retrieval cap, so this cannot accidentally request hundreds
+    # of vector results.
     retrieved = rag_service.retrieve(
         data.content,
-        top_k=300,
+        top_k=rag_service.DEFAULT_RETRIEVAL_K,
     )
 
-    # Merge retrieved properties with full database context
+    # Merge semantic results with the complete database context. Exact
+    # property filters and ranking are applied later by RAGService.
     merged = {}
 
     for item in retrieved:
-        merged[item["metadata"]["property_id"]] = item
+        property_id = item.get("metadata", {}).get("property_id")
+        if property_id is not None:
+            merged[property_id] = item
 
     for item in all_context:
-        merged.setdefault(item["metadata"]["property_id"], item)
+        property_id = item["metadata"]["property_id"]
+        if property_id in merged:
+            # Preserve the Chroma distance while retaining the canonical
+            # database document.
+            merged[property_id]["document"] = item["document"]
+            merged[property_id]["metadata"] = item["metadata"]
+        else:
+            merged[property_id] = item
 
     final_context = list(merged.values())
 
@@ -200,6 +211,7 @@ def add_chat_message(
     db.refresh(assistant_message)
 
     return user_message, assistant_message
+
 
 def get_dashboard_summary(db: Session) -> DashboardSummary:
     total_properties = db.query(func.count(Property.id)).scalar() or 0
