@@ -27,7 +27,8 @@ services:
     environment:
       DATABASE_URL: mysql+pymysql://${DB_USER:-root}:${DB_PASSWORD:-rootpassword}@mysql:3306/${DB_NAME:-realestate}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-20b}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       UPLOAD_DIR: /app/uploads
       CHROMA_PERSIST_DIR: /app/chroma_db
