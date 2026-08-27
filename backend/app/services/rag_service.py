@@ -114,6 +114,7 @@ class RAGService:
             "cheapest", "least expensive", "lowest price", "lowest cost",
             "affordable", "cheap", "budget", "best value", "good deal",
             "low cost", "under", "within budget", "cheaper", "lower price",
+            "minimum price", "minimum", "lowest",
         ]):
             return "price_asc"
 
@@ -139,6 +140,12 @@ class RAGService:
         ]):
             return "year_desc"
 
+        if self._contains_any(q, [
+            "most parking", "maximum parking", "highest parking",
+            "most parking spaces", "maximum parking spaces",
+        ]):
+            return "parking_desc"
+
         return None
 
     def parse_query(self, query: str) -> dict[str, Any]:
@@ -146,6 +153,7 @@ class RAGService:
 
         filters: dict[str, Any] = {
             "city": None,
+            "cities": [],
             "bedrooms": None,
             "bathrooms": None,
             "floors": None,
@@ -162,7 +170,14 @@ class RAGService:
             "luxury": False,
             "location": None,
             "sort_by": self._infer_sort_preference(q),
-            "compare": "compare" in q or "comparison" in q,
+            "compare": (
+                "compare" in q
+                or "comparison" in q
+                or "versus" in q
+                or re.search(r"\bvs\.?\b", q) is not None
+                or "more affordable" in q
+                or "which is better" in q
+            ),
             "compare_ids": [],
             "property_id": None,
             "top_k": 5,
@@ -172,12 +187,18 @@ class RAGService:
             "mumbai", "bangalore", "bengaluru", "delhi", "hyderabad",
             "pune", "chennai", "kolkata", "ahmedabad",
         ]
+        found_cities: list[str] = []
         for city in cities:
             if re.search(rf"\b{re.escape(city)}\b", q):
-                filters["city"] = city
-                break
+                canonical = "bangalore" if city == "bengaluru" else city
+                if canonical not in found_cities:
+                    found_cities.append(canonical)
+        filters["cities"] = found_cities
+        filters["city"] = found_cities[0] if found_cities else None
+        if len(found_cities) > 1 and " or " in q:
+            filters["compare"] = True
 
-        match = re.search(r"\b([1-9]\d?)\s*(?:bhk|bed(?:room)?s?)\b", q)
+        match = re.search(r"\b(\d+)\s*(?:bhk|bed(?:room)?s?)\b", q)
         if match:
             filters["bedrooms"] = int(match.group(1))
 
@@ -204,6 +225,12 @@ class RAGService:
             r"([\d,.]+)\s*(crore|cr|crores|lakh|lac|lacs|lakhs|[cl])?\b"
         )
         match = price_pattern.search(q)
+        if not match:
+            # Also accept a direct expression such as "₹1.5 crore".
+            match = re.search(
+                r"₹?\s*([\d,.]+)\s*(crore|cr|crores|lakh|lac|lacs|lakhs|[cl])\b",
+                q,
+            )
         if match:
             filters["max_price"] = self._money_to_rupees(
                 float(match.group(1).replace(",", "")), match.group(2)
@@ -258,6 +285,20 @@ class RAGService:
             if location in q:
                 filters["location"] = location
                 break
+
+        # Preserve an unknown but explicit location (for example,
+        # "properties in Antarctica") so it cannot silently fall back to
+        # unrelated listings. Known city names remain city filters.
+        if filters["location"] is None:
+            location_match = re.search(
+                r"\bin\s+([a-z][a-z0-9 -]*?)(?=\s+(?:under|below|up to|within|with|and|for)\b|$)",
+                q,
+            )
+            if location_match:
+                candidate = location_match.group(1).strip()
+                known_cities = {"mumbai", "bangalore", "bengaluru", "delhi", "hyderabad", "pune", "chennai", "kolkata", "ahmedabad"}
+                if candidate and candidate not in known_cities:
+                    filters["location"] = candidate
 
         return filters
 
@@ -392,12 +433,14 @@ class RAGService:
         elif filters["property_id"] is not None and prop["id"] != filters["property_id"]:
             return False
 
-        city = filters["city"]
-        if city:
-            aliases = {"bengaluru": "bangalore"}
-            expected = aliases.get(city, city)
+        requested_cities = filters.get("cities") or ([filters["city"]] if filters["city"] else [])
+        if requested_cities:
             actual = prop["city"].lower()
-            if expected not in actual:
+            if not any(
+                requested in actual
+                or (requested == "bangalore" and "bengaluru" in actual)
+                for requested in requested_cities
+            ):
                 return False
 
         if filters["location"] and filters["location"] not in prop["location"].lower():
@@ -418,7 +461,7 @@ class RAGService:
             return False
         if filters["max_area"] is not None and prop["area_value"] > filters["max_area"]:
             return False
-        if filters["parking"] and not prop["parking_yes"]:
+        if filters["parking"] and filters["sort_by"] != "parking_desc" and not prop["parking_yes"]:
             return False
         if filters["parking_count"] is not None and prop["parking_value"] < filters["parking_count"]:
             return False
@@ -452,6 +495,14 @@ class RAGService:
             properties.sort(key=lambda item: item["area_value"], reverse=True)
         elif sort_by == "year_desc":
             properties.sort(key=lambda item: item["year_value"], reverse=True)
+        elif sort_by == "parking_desc":
+            properties.sort(key=lambda item: item["parking_value"], reverse=True)
+            if properties:
+                highest = properties[0]["parking_value"]
+                # Keep every tied maximum (within the global context bound).
+                return [
+                    item for item in properties if item["parking_value"] == highest
+                ][: self.MAX_CONTEXT_PROPERTIES]
 
         return properties[: filters["top_k"]]
 
@@ -463,10 +514,21 @@ class RAGService:
             "sqft", "area", "bathroom", "bedroom", "bhk", "parking", "loan",
             "mortgage", "investment", "emi", "amenities", "recommend", "find",
             "search", "compare", "comparison", "suggest", "available",
-            "furnished", "balcony", "location", "city",
+            "furnished", "balcony", "location", "city", "under", "below",
+            "within", "lakh", "lakhs", "lac", "crore", "crores", "cr",
+            "cheapest", "most", "maximum", "highest", "parking spaces",
         ]
         q = query.lower()
-        return bool(re.search(r"\d+\s*bhk", q)) or any(term in q for term in terms)
+        locations = [
+            "whitefield", "jayanagar", "hsr layout", "electronic city", "aundh",
+            "baner", "kukatpally", "hitec city", "koramangala", "bellandur",
+            "bandra", "thane", "malad", "juhu",
+        ]
+        return (
+            bool(re.search(r"\d+\s*(?:bhk|bed(?:room)?s?)", q))
+            or any(term in q for term in terms)
+            or any(location in q for location in locations)
+        )
 
     def _format_property_summary(
         self,
@@ -478,8 +540,9 @@ class RAGService:
 
         q = query.lower()
         lines: list[str] = []
+        comparison_query = self.parse_query(query)["compare"]
 
-        if "compare" in q or "comparison" in q:
+        if comparison_query:
             lines.append("Here are the matching properties for comparison:")
         elif "cheapest" in q or "affordable" in q or "budget" in q:
             lines.append("Here are the most affordable matching properties:")
@@ -490,20 +553,51 @@ class RAGService:
         else:
             lines.append(f"I found {len(properties)} matching properties:")
 
-        for index, prop in enumerate(properties, 1):
+        # For multi-city comparisons, keep each city's listings together so a
+        # user can compare like-for-like results without guessing which city a
+        # numbered item belongs to.
+        parsed_query = self.parse_query(query)
+        grouped = bool(comparison_query and len(parsed_query.get("cities", [])) > 1)
+        entries = properties
+        if grouped:
+            entries = []
+            for city in parsed_query["cities"]:
+                entries.extend([prop for prop in properties if city in prop["city"].lower() or (city == "bangalore" and "bengaluru" in prop["city"].lower())])
+
+        current_city = None
+        for index, prop in enumerate(entries, 1):
+            if grouped:
+                city_key = prop["city"].lower()
+                if city_key != current_city:
+                    lines.extend(["", f"{prop['city']}:"])
+                    current_city = city_key
             lines.extend(
                 [
                     "",
                     f"{index}. {prop['title']}",
-                    f"   📍 {prop['location']}, {prop['city']}",
+                    f"   📍 Location: {prop['location']}, {prop['city']}",
                     f"   💰 {prop['price']}",
                     f"   🛏 {prop['bedrooms']} BHK | 🛁 {prop['bathrooms']} bath | 📐 {prop['area']}",
-                    f"   🚗 Parking: {'Yes' if prop['parking_yes'] else 'No'}",
+                    f"   🚗 Parking: {'Yes' if prop['parking_yes'] else 'No'} ({prop['parking_value']} spaces)",
                 ]
             )
+            if "furnished" in q:
+                lines.append("   🛋 Furnished: Yes")
+            if "balcony" in q:
+                lines.append("   🌇 Balcony: Yes")
 
             if prop["description"] and prop["description"].lower() != "n/a":
                 lines.append(f"   ✨ {prop['description']}")
+
+        if comparison_query:
+            lowest = min(properties, key=lambda item: item["price_value"])
+            highest = max(properties, key=lambda item: item["price_value"])
+            if lowest["id"] != highest["id"]:
+                lines.extend([
+                    "",
+                    f"Grounded comparison: {lowest['title']} is listed at {lowest['price']}; "
+                    f"{highest['title']} is listed at {highest['price']}."
+                ])
 
         return "\n".join(lines)
 
@@ -581,7 +675,12 @@ class RAGService:
                 [],
             )
 
-        answer = self._generate_with_groq(query, ranked)
+        # Comparisons and numeric rankings are rendered deterministically so
+        # city grouping, ties, and factual claims cannot be changed by model
+        # wording. Groq remains available for ordinary grounded searches.
+        answer = None
+        if not filters["compare"] and filters["sort_by"] != "parking_desc":
+            answer = self._generate_with_groq(query, ranked)
         if not answer:
             answer = self._format_property_summary(ranked, query)
 
